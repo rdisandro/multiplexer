@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -15,8 +16,10 @@ import (
 
 // pty is a pseudo-terminal and the process it runs.
 type pty struct {
+	mu     sync.Mutex
 	master *os.File
 	cmd    *exec.Cmd
+	exited bool
 }
 
 // startPTY runs argv (argv[0] as the program sees it, path the file) in a
@@ -68,8 +71,10 @@ func (p *pty) pid() int {
 
 // kill kills the process group of the session's process.
 func (p *pty) kill() {
-	if pid := p.pid(); pid > 0 {
-		syscall.Kill(-pid, syscall.SIGKILL)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.exited && p.cmd.Process != nil && p.cmd.Process.Pid > 1 {
+		syscall.Kill(-p.cmd.Process.Pid, syscall.SIGKILL)
 	}
 }
 
@@ -93,6 +98,9 @@ func (p *pty) foreground() int {
 // signal's number for a process a signal ended.
 func (p *pty) wait() int {
 	err := p.cmd.Wait()
+	p.mu.Lock()
+	p.exited = true
+	p.mu.Unlock()
 	if e, ok := errors.AsType[*exec.ExitError](err); ok {
 		if ws, ok := e.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
 			return 128 + int(ws.Signal())
@@ -108,12 +116,14 @@ func (p *pty) wait() int {
 // hangup ends the session: its processes get SIGHUP, as when a terminal
 // window closes.
 func (p *pty) hangup() {
-	if p.cmd.Process != nil {
+	p.mu.Lock()
+	if !p.exited && p.cmd.Process != nil && p.cmd.Process.Pid > 1 {
 		syscall.Kill(-p.cmd.Process.Pid, syscall.SIGHUP)
-		if pg := p.foreground(); pg > 0 {
+		if pg := p.foreground(); pg > 1 {
 			syscall.Kill(-pg, syscall.SIGHUP)
 		}
 	}
+	p.mu.Unlock()
 	p.master.Close()
 }
 

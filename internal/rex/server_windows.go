@@ -1,8 +1,11 @@
 package rex
 
 import (
+	"errors"
+	"net"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -11,6 +14,33 @@ import (
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
+
+// listenSocket creates a Unix domain socket at sock inside a regular directory.
+func listenSocket(sock string) (net.Listener, error) {
+	dir := filepath.Dir(sock)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	st, err := os.Lstat(dir)
+	if err != nil {
+		return nil, err
+	}
+	if !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("rex: socket directory is not a regular directory")
+	}
+	if st, err := os.Lstat(sock); err == nil {
+		if st.Mode()&os.ModeSymlink != 0 {
+			return nil, errors.New("rex: refusing to remove symlink at socket path")
+		}
+		os.Remove(sock)
+	}
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		return nil, err
+	}
+	os.Chmod(sock, 0o600)
+	return ln, nil
+}
 
 // lockFile locks f for this process, or fails at once when another holds
 // it.

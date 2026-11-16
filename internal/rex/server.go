@@ -58,12 +58,10 @@ func Serve() error {
 	}
 	defer lock.Close()
 	sock := SocketPath()
-	os.Remove(sock)
-	ln, err := net.Listen("unix", sock)
+	ln, err := listenSocket(sock)
 	if err != nil {
 		return err
 	}
-	os.Chmod(sock, 0o600)
 	s := &Server{
 		sessions: map[string]*session{}, started: time.Now(), ln: ln,
 		hostDone: make(chan struct{}), idleFrom: time.Now(), quit: make(chan struct{}),
@@ -73,7 +71,10 @@ func Serve() error {
 	}
 	s.exe, s.exeTime = Executable()
 	go func() {
-		s.host = hostInfo()
+		h := hostInfo()
+		s.mu.Lock()
+		s.host = h
+		s.mu.Unlock()
 		close(s.hostDone)
 	}()
 	go s.watchIdle()
@@ -133,7 +134,7 @@ func (s *Server) shutdown() { s.quitOnce.Do(func() { close(s.quit) }) }
 
 func (s *Server) handle(conn net.Conn) {
 	r := bufio.NewReaderSize(conn, 64<<10)
-	first, err := r.ReadBytes('\n')
+	first, err := readLine(r, maxMessageSize)
 	if err != nil {
 		conn.Close()
 		return
@@ -191,7 +192,7 @@ func (s *Server) control(conn net.Conn, r *bufio.Reader, first []byte) {
 			}
 		}
 		var err error
-		line, err = r.ReadBytes('\n')
+		line, err = readLine(r, maxMessageSize)
 		if err != nil {
 			return
 		}
@@ -225,7 +226,10 @@ func (s *Server) do(req Request) (any, error) {
 		case <-s.hostDone:
 		case <-time.After(3 * time.Second):
 		}
-		return Hello{Version: ProtocolVersion, PID: os.Getpid(), Started: s.started, Host: s.host, Exe: s.exe, ExeTime: s.exeTime}, nil
+		s.mu.Lock()
+		h := s.host
+		s.mu.Unlock()
+		return Hello{Version: ProtocolVersion, PID: os.Getpid(), Started: s.started, Host: h, Exe: s.exe, ExeTime: s.exeTime}, nil
 	case "list":
 		s.mu.Lock()
 		all := make([]*session, 0, len(s.order))

@@ -6,20 +6,32 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/egoist/mygo"
 )
 
-// debugHook lets a script drive the app while GOREX_DEBUG names a
-// directory: each line of its file "do" is run, and "shot" captures the
-// window into shot.png.
+// debugHook lets a script drive the app in development mode while GOREX_DEBUG
+// names a directory: each line of its file "do" is run, and "shot" captures
+// the window into shot.png.
 func (a *App) debugHook() {
+	if !mygo.IsDev() {
+		return
+	}
 	dir := os.Getenv("GOREX_DEBUG")
 	if dir == "" {
+		return
+	}
+	st, err := os.Lstat(dir)
+	if err != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
 		return
 	}
 	log.SetFlags(log.Ltime | log.Lmicroseconds)
 	go func() {
 		for range time.Tick(150 * time.Millisecond) {
 			req := filepath.Join(dir, "do")
+			if st, err := os.Lstat(req); err != nil || !st.Mode().IsRegular() {
+				continue
+			}
 			b, err := os.ReadFile(req)
 			if err != nil {
 				continue
@@ -44,9 +56,11 @@ func (a *App) debug(dir, line string) {
 		if png, err := win.CapturePage(); err == nil {
 			name := "shot.png"
 			if arg != "" {
-				name = arg
+				if base := filepath.Base(arg); base != "." && base != ".." && base != string(filepath.Separator) {
+					name = base
+				}
 			}
-			os.WriteFile(filepath.Join(dir, name), png, 0o644)
+			os.WriteFile(filepath.Join(dir, name), png, 0o600)
 		}
 	case "sleep":
 		d, _ := time.ParseDuration(arg)
@@ -76,8 +90,9 @@ func (a *App) debug(dir, line string) {
 		case "focus":
 			win.Update(func() {
 				if t := a.tab(); t != nil {
-					if ps := t.panes(); atoi(arg)-1 < len(ps) {
-						t.setFocus(ps[atoi(arg)-1])
+					idx := atoi(arg) - 1
+					if ps := t.panes(); idx >= 0 && idx < len(ps) {
+						t.setFocus(ps[idx])
 						a.focusReq = t.Focus
 					}
 				}

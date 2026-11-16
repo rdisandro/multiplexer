@@ -8,7 +8,9 @@
 package rex
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"os"
@@ -18,6 +20,28 @@ import (
 
 // ProtocolVersion changes whenever the wire protocol does.
 const ProtocolVersion = 1
+
+// maxMessageSize caps the size of a single control line to prevent unbounded
+// memory allocation.
+const maxMessageSize = 4 << 20
+
+// readLine reads a newline-terminated line of at most maxBytes bytes.
+func readLine(r *bufio.Reader, maxBytes int) ([]byte, error) {
+	var line []byte
+	for {
+		frag, isPrefix, err := r.ReadLine()
+		line = append(line, frag...)
+		if len(line) > maxBytes {
+			return nil, errors.New("rex: message too large")
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !isPrefix {
+			return line, nil
+		}
+	}
+}
 
 // Request is a line of the control connection, from the client.
 type Request struct {
@@ -121,7 +145,8 @@ func Dir() string {
 }
 
 // SocketPath returns the path of the server's socket: in Dir, unless that
-// is too long a path for a socket, then in the temporary directory.
+// is too long a path for a socket, then in a private directory inside the
+// temporary directory.
 func SocketPath() string {
 	p := filepath.Join(Dir(), "server.sock")
 	if len(p) < 100 {
@@ -129,9 +154,9 @@ func SocketPath() string {
 	}
 	h := fnv.New32a()
 	h.Write([]byte(p))
-	name := fmt.Sprintf("gorex-%x.sock", h.Sum32())
+	dir := fmt.Sprintf("gorex-%x", h.Sum32())
 	if uid := os.Getuid(); uid >= 0 { // Windows has none, and a temporary directory per user
-		name = fmt.Sprintf("gorex-%d-%x.sock", uid, h.Sum32())
+		dir = fmt.Sprintf("gorex-%d-%x", uid, h.Sum32())
 	}
-	return filepath.Join(os.TempDir(), name)
+	return filepath.Join(os.TempDir(), dir, "server.sock")
 }

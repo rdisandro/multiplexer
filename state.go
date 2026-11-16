@@ -711,6 +711,12 @@ func (a *App) save() {
 	go c.SetLayout(b)
 }
 
+const (
+	maxRestoreDepth = 16
+	maxRestorePanes = 64
+	maxRestoreTabs  = 32
+)
+
 // restore opens the tabs of the saved layout, attaching to the sessions
 // the server still has and starting new ones in place of those it lost.
 func (a *App) restore() bool {
@@ -722,6 +728,9 @@ func (a *App) restore() bool {
 	if json.Unmarshal(raw, &l) != nil || len(l.Tabs) == 0 {
 		return false
 	}
+	if len(l.Tabs) > maxRestoreTabs {
+		l.Tabs = l.Tabs[:maxRestoreTabs]
+	}
 	live := map[string]rex.SessionInfo{}
 	if infos, err := a.client.List(); err == nil {
 		for _, in := range infos {
@@ -731,10 +740,12 @@ func (a *App) restore() bool {
 		}
 	}
 	used := map[string]bool{}
-	var load func(s *savedNode, t *Tab, parent *Node) *Node
-	load = func(s *savedNode, t *Tab, parent *Node) *Node {
+	totalPanes := 0
+	var load func(s *savedNode, t *Tab, parent *Node, depth int) *Node
+	load = func(s *savedNode, t *Tab, parent *Node, depth int) *Node {
 		n := &Node{ID: a.id(), Parent: parent}
-		if s.A == nil || s.B == nil {
+		if s.A == nil || s.B == nil || depth >= maxRestoreDepth || totalPanes >= maxRestorePanes {
+			totalPanes++
 			var p *Pane
 			if in, ok := live[s.SID]; ok && !used[s.SID] {
 				used[s.SID] = true
@@ -753,16 +764,19 @@ func (a *App) restore() bool {
 			return n
 		}
 		n.Vertical, n.Ratio = s.Vertical, min(max(s.Ratio, 0.05), 0.95)
-		n.A, n.B = load(s.A, t, n), load(s.B, t, n)
+		n.A, n.B = load(s.A, t, n, depth+1), load(s.B, t, n, depth+1)
 		return n
 	}
 	for _, st := range l.Tabs {
-		if st.Root == nil {
+		if st.Root == nil || totalPanes >= maxRestorePanes {
 			continue
 		}
 		t := &Tab{ID: a.id(), Name: st.Name}
-		t.Root = load(st.Root, t, nil)
+		t.Root = load(st.Root, t, nil, 0)
 		ps := t.panes()
+		if len(ps) == 0 {
+			continue
+		}
 		for _, p := range ps {
 			t.setFocus(p)
 		}

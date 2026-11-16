@@ -4,16 +4,62 @@ package rex
 
 import (
 	"encoding/json"
+	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	"golang.org/x/sys/unix"
 )
+
+var umaskMu sync.Mutex
+
+// listenSocket creates a Unix domain socket at sock inside a user-owned
+// directory with 0700 permissions and a restrictive umask.
+func listenSocket(sock string) (net.Listener, error) {
+	dir := filepath.Dir(sock)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	st, err := os.Lstat(dir)
+	if err != nil {
+		return nil, err
+	}
+	if !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("rex: socket directory is not a regular directory")
+	}
+	if sys, ok := st.Sys().(*syscall.Stat_t); ok && int(sys.Uid) != os.Getuid() {
+		return nil, errors.New("rex: socket directory is not owned by current user")
+	}
+	if st.Mode().Perm()&0o077 != 0 {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return nil, err
+		}
+	}
+	if st, err := os.Lstat(sock); err == nil {
+		if st.Mode()&os.ModeSymlink != 0 || st.Mode()&os.ModeSocket == 0 {
+			return nil, errors.New("rex: refusing to remove non-socket file at socket path")
+		}
+		os.Remove(sock)
+	}
+	umaskMu.Lock()
+	old := unix.Umask(0o077)
+	ln, err := net.Listen("unix", sock)
+	unix.Umask(old)
+	umaskMu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	os.Chmod(sock, 0o600)
+	return ln, nil
+}
 
 // lockFile locks f for this process, or fails at once when another holds
 // it.

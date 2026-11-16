@@ -196,7 +196,9 @@ func TestRestore(t *testing.T) {
 	for _, tab := range a.tabs {
 		for _, p := range tab.panes() {
 			sids[p.SID] = true
-			p.term.Close() // detach, as when the app quits
+			if p.term != nil {
+				p.term.Close() // detach, as when the app quits
+			}
 		}
 	}
 	// Another app, as the next launch, finds them all.

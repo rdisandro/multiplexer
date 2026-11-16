@@ -3,6 +3,7 @@
 package rex
 
 import (
+	"bufio"
 	"bytes"
 	"os"
 	"path/filepath"
@@ -11,6 +12,45 @@ import (
 	"testing"
 	"time"
 )
+
+func TestSecurityControls(t *testing.T) {
+	// 1. sanitizeTitle strips C0/C1 control characters and escape sequences.
+	dirty := "my-title\x07\x1b]52;c;dGVzdA==\x07\x1b[2J\x9c-clean"
+	got := sanitizeTitle(dirty)
+	if strings.ContainsAny(got, "\x07\x1b\x9c") || got != "my-title]52;c;dGVzdA==[2J-clean" {
+		t.Fatalf("sanitizeTitle(%q) = %q", dirty, got)
+	}
+
+	// 2. readLine enforces maxBytes cap on oversized lines without newline.
+	oversized := bufio.NewReader(strings.NewReader(strings.Repeat("a", 2048)))
+	if _, err := readLine(oversized, 1024); err == nil {
+		t.Fatal("readLine accepted line exceeding maxBytes")
+	}
+	valid := bufio.NewReader(strings.NewReader("{\"op\":\"hello\"}\ntrailing"))
+	line, err := readLine(valid, 1024)
+	if err != nil || string(line) != `{"op":"hello"}` {
+		t.Fatalf("readLine valid = %q, %v", line, err)
+	}
+
+	// 3. SocketPath fallback uses a dedicated subdirectory rather than flat TempDir.
+	longDir := filepath.Join(os.TempDir(), strings.Repeat("longdir-", 15))
+	t.Setenv("GOREX_DIR", longDir)
+	sp := SocketPath()
+	if filepath.Dir(sp) == filepath.Clean(os.TempDir()) {
+		t.Fatalf("SocketPath(%q) placed directly in TempDir", sp)
+	}
+
+	// 4. listenSocket refuses to remove a non-socket file or symlink at the socket path.
+	tmp := t.TempDir()
+	badSock := filepath.Join(tmp, "server.sock")
+	if err := os.WriteFile(badSock, []byte("not a socket"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ln, err := listenSocket(badSock); err == nil {
+		ln.Close()
+		t.Fatal("listenSocket overwrote a regular file")
+	}
+}
 
 func TestServer(t *testing.T) {
 	// A short path, for the socket: macOS's temporary directory is long.

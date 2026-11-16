@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/plugins/terminal"
 )
@@ -205,7 +206,7 @@ func (s *session) attach(conn net.Conn, cols, rows int) {
 		s.vt.Resize(cols, rows)
 	}
 	snap := s.vt.Snapshot()
-	if title := s.vt.Title(); title != "" {
+	if title := sanitizeTitle(s.vt.Title()); title != "" {
 		snap = append([]byte("\x1b]2;"+title+"\x07"), snap...)
 	}
 	a.out <- snap
@@ -347,6 +348,21 @@ func (s *session) info() SessionInfo {
 		in.Dir = inspect(in.PID).dir
 	}
 	return in
+}
+
+// sanitizeTitle strips C0/C1 control characters and invalid UTF-8 bytes so a
+// title cannot break out of an OSC 2 sequence.
+func sanitizeTitle(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		r, w := utf8.DecodeRuneInString(s[i:])
+		i += w
+		if (r == utf8.RuneError && w == 1) || r < 0x20 || (r >= 0x7f && r <= 0x9f) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // discard is the Conn of a session's emulator: it reads from a pipe that

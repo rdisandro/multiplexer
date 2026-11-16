@@ -85,7 +85,7 @@ func (c *Client) Closed() <-chan struct{} { return c.closed }
 func (c *Client) read() {
 	r := bufio.NewReaderSize(c.conn, 1<<20)
 	for {
-		line, err := r.ReadBytes('\n')
+		line, err := readLine(r, maxMessageSize)
 		if err != nil {
 			c.mu.Lock()
 			c.err = err
