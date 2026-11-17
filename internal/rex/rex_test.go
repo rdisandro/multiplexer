@@ -34,7 +34,7 @@ func TestSecurityControls(t *testing.T) {
 
 	// 3. SocketPath fallback uses a dedicated subdirectory rather than flat TempDir.
 	longDir := filepath.Join(os.TempDir(), strings.Repeat("longdir-", 15))
-	t.Setenv("GOREX_DIR", longDir)
+	t.Setenv("MULTIPLEXER_DIR", longDir)
 	sp := SocketPath()
 	if filepath.Dir(sp) == filepath.Clean(os.TempDir()) {
 		t.Fatalf("SocketPath(%q) placed directly in TempDir", sp)
@@ -67,7 +67,7 @@ func TestServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(dir)
-	t.Setenv("GOREX_DIR", dir)
+	t.Setenv("MULTIPLEXER_DIR", dir)
 	go Serve()
 	var c *Client
 	for i := 0; i < 100; i++ {

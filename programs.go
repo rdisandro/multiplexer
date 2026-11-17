@@ -8,13 +8,13 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-//go:embed assets/icons/*.svg assets/brands/*.svg
+//go:embed assets/icons/*.svg assets/brands/*.svg assets/logos/*.svg
 var assets embed.FS
 
 var svgs = map[string]*ui.SVG{}
 
-// icon returns an embedded SVG: "x" from the icons, "brand:git" from the
-// brands.
+// icon returns an embedded SVG: "x" from assets/icons, "brand:git" from
+// assets/brands, or "logo:near-ai-secondary-color" from assets/logos.
 func icon(name string) *ui.SVG {
 	if s, ok := svgs[name]; ok {
 		return s
@@ -22,6 +22,8 @@ func icon(name string) *ui.SVG {
 	file := "assets/icons/" + name + ".svg"
 	if b, ok := strings.CutPrefix(name, "brand:"); ok {
 		file = "assets/brands/" + b + ".svg"
+	} else if l, ok := strings.CutPrefix(name, "logo:"); ok {
+		file = "assets/logos/" + l + ".svg"
 	}
 	data, err := assets.ReadFile(file)
 	if err != nil {
@@ -32,66 +34,91 @@ func icon(name string) *ui.SVG {
 	return s
 }
 
-// program is how a program shows: its name, its glyph in headers, and the
-// tile of tabs.
+// nearSecondaryLogo returns the official NEAR AI secondary lockup matched to
+// the active theme's light/dark appearance (unchanged SVG artwork per NDS-8).
+func nearSecondaryLogo(dark bool) *ui.SVG {
+	if dark {
+		return icon("logo:near-ai-secondary-white-color")
+	}
+	return icon("logo:near-ai-secondary-color")
+}
+
+// program describes how a foreground CLI/shell process renders in headers and
+// flat Near AI OS tool tiles (08-iconography.md: flat neutral-tint square,
+// radius-tile = 6, >= 3:1 glyph tint in light and dark, no top sheen).
 type program struct {
-	Name string
-	// Glyph is the icon of the pane's header, in the color of the text.
-	Glyph string
-	// TileBg and TileFg color the tile of the program in tabs; TileGlyph
-	// is the glyph on it, Glyph when empty.
-	TileBg, TileFg ui.Color
-	TileGlyph      string
-	// TileBorder outlines light tiles.
-	TileBorder bool
-	// Shell is a shell at its prompt.
-	Shell bool
+	Name      string
+	Glyph     string
+	TileGlyph string
+	TintLight ui.Color
+	TintDark  ui.Color
+	DataIndex int // >= 0 selects Tokens.data[DataIndex] when TintLight.A == 0
+	Shell     bool
+}
+
+func (p program) glyphTint(ts *themeState) ui.Color {
+	if p.TintLight.A == 0 {
+		return ts.data[p.DataIndex%len(ts.data)]
+	}
+	if ts.Dark {
+		return p.TintDark
+	}
+	return p.TintLight
 }
 
 var (
-	shellTile = program{Glyph: "square-terminal", TileGlyph: "terminal", TileBg: ui.Hex("#1d2420"), TileFg: ui.Hex("#5fd38d"), Shell: true}
-
-	programs = map[string]program{
-		"codex":     {Name: "Codex", Glyph: "brand:openai", TileBg: ui.Hex("#f7f7f7"), TileFg: ui.Hex("#1a1a1a"), TileBorder: true},
-		"claude":    {Name: "Claude Code", Glyph: "brand:claude", TileBg: ui.Hex("#d97757"), TileFg: ui.Hex("#ffffff")},
-		"node":      {Name: "Node", Glyph: "node-hex", TileBg: ui.Hex("#5fa04e"), TileFg: ui.Hex("#ffffff"), TileGlyph: "brand:nodedotjs"},
-		"bun":       {Name: "Bun", Glyph: "brand:bun", TileBg: ui.Hex("#fbf0df"), TileFg: ui.Hex("#3b2a20"), TileBorder: true},
-		"deno":      {Name: "Deno", Glyph: "brand:deno", TileBg: ui.Hex("#1b1b1b"), TileFg: ui.Hex("#ffffff")},
-		"python":    {Name: "Python", Glyph: "brand:python", TileBg: ui.Hex("#3776ab"), TileFg: ui.Hex("#ffd43b")},
-		"lazygit":   {Name: "Git Changes", Glyph: "plus-minus-circle", TileBg: ui.Hex("#3f8f4f"), TileFg: ui.Hex("#ffffff"), TileGlyph: "diff"},
-		"tig":       {Name: "Git Log", Glyph: "git-branch", TileBg: ui.Hex("#f05032"), TileFg: ui.Hex("#ffffff")},
-		"git":       {Name: "Git", Glyph: "brand:git", TileBg: ui.Hex("#f05032"), TileFg: ui.Hex("#ffffff")},
-		"vim":       {Name: "Vim", Glyph: "brand:vim", TileBg: ui.Hex("#019733"), TileFg: ui.Hex("#ffffff")},
-		"nvim":      {Name: "Neovim", Glyph: "brand:neovim", TileBg: ui.Hex("#2b7a3d"), TileFg: ui.Hex("#ffffff")},
-		"hx":        {Name: "Helix", Glyph: "brand:helix", TileBg: ui.Hex("#281733"), TileFg: ui.Hex("#c7a3f5")},
-		"emacs":     {Name: "Emacs", Glyph: "brand:gnuemacs", TileBg: ui.Hex("#7f5ab6"), TileFg: ui.Hex("#ffffff")},
-		"htop":      {Name: "Activity", Glyph: "activity", TileBg: ui.Hex("#1f6f43"), TileFg: ui.Hex("#a7f3c4")},
-		"btop":      {Name: "Activity", Glyph: "activity", TileBg: ui.Hex("#1f6f43"), TileFg: ui.Hex("#a7f3c4")},
-		"top":       {Name: "Activity", Glyph: "activity", TileBg: ui.Hex("#1f6f43"), TileFg: ui.Hex("#a7f3c4")},
-		"ssh":       {Name: "SSH", Glyph: "globe", TileBg: ui.Hex("#5b4bd6"), TileFg: ui.Hex("#ffffff")},
-		"mosh":      {Name: "Mosh", Glyph: "globe", TileBg: ui.Hex("#5b4bd6"), TileFg: ui.Hex("#ffffff")},
-		"docker":    {Name: "Docker", Glyph: "brand:docker", TileBg: ui.Hex("#2496ed"), TileFg: ui.Hex("#ffffff")},
-		"go":        {Name: "Go", Glyph: "brand:go", TileBg: ui.Hex("#00add8"), TileFg: ui.Hex("#ffffff")},
-		"cargo":     {Name: "Cargo", Glyph: "brand:rust", TileBg: ui.Hex("#2b2b2b"), TileFg: ui.Hex("#f4a261")},
-		"rustc":     {Name: "Rust", Glyph: "brand:rust", TileBg: ui.Hex("#2b2b2b"), TileFg: ui.Hex("#f4a261")},
-		"npm":       {Name: "npm", Glyph: "brand:npm", TileBg: ui.Hex("#cb3837"), TileFg: ui.Hex("#ffffff")},
-		"pnpm":      {Name: "pnpm", Glyph: "brand:pnpm", TileBg: ui.Hex("#f69220"), TileFg: ui.Hex("#ffffff")},
-		"yarn":      {Name: "Yarn", Glyph: "brand:yarn", TileBg: ui.Hex("#2c8ebb"), TileFg: ui.Hex("#ffffff")},
-		"ruby":      {Name: "Ruby", Glyph: "brand:ruby", TileBg: ui.Hex("#cc342d"), TileFg: ui.Hex("#ffffff")},
-		"irb":       {Name: "Ruby", Glyph: "brand:ruby", TileBg: ui.Hex("#cc342d"), TileFg: ui.Hex("#ffffff")},
-		"lua":       {Name: "Lua", Glyph: "brand:lua", TileBg: ui.Hex("#2c2d72"), TileFg: ui.Hex("#ffffff")},
-		"php":       {Name: "PHP", Glyph: "brand:php", TileBg: ui.Hex("#777bb4"), TileFg: ui.Hex("#ffffff")},
-		"psql":      {Name: "PostgreSQL", Glyph: "brand:postgresql", TileBg: ui.Hex("#336791"), TileFg: ui.Hex("#ffffff")},
-		"mysql":     {Name: "MySQL", Glyph: "brand:mysql", TileBg: ui.Hex("#00758f"), TileFg: ui.Hex("#ffffff")},
-		"redis-cli": {Name: "Redis", Glyph: "brand:redis", TileBg: ui.Hex("#d82c20"), TileFg: ui.Hex("#ffffff")},
-		"tmux":      {Name: "tmux", Glyph: "brand:tmux", TileBg: ui.Hex("#1bb91f"), TileFg: ui.Hex("#ffffff")},
-		"make":      {Name: "Make", Glyph: "cpu", TileBg: ui.Hex("#6b7280"), TileFg: ui.Hex("#ffffff")},
-		"swift":     {Name: "Swift", Glyph: "brand:swift", TileBg: ui.Hex("#f05138"), TileFg: ui.Hex("#ffffff")},
-		"kotlin":    {Name: "Kotlin", Glyph: "brand:kotlin", TileBg: ui.Hex("#7f52ff"), TileFg: ui.Hex("#ffffff")},
+	shellTile = program{
+		Glyph:     "square-terminal",
+		TileGlyph: "terminal",
+		TintLight: ui.Hex("#1a8f4c"),
+		TintDark:  ui.Hex("#30d158"),
+		Shell:     true,
 	}
 
-	shells = map[string]bool{"zsh": true, "bash": true, "fish": true, "sh": true, "dash": true, "nu": true, "pwsh": true, "elvish": true, "xonsh": true, "tcsh": true, "csh": true, "ksh": true,
-		"cmd": true, "powershell": true}
+	programs = map[string]program{
+		"codex":     {Name: "Codex", Glyph: "brand:openai", TintLight: ui.Hex("#1d1d1f"), TintDark: ui.Hex("#f2f3f8")},
+		"claude":    {Name: "Claude Code", Glyph: "brand:claude", TintLight: ui.Hex("#b8532f"), TintDark: ui.Hex("#f08c69")},
+		"node":      {Name: "Node", Glyph: "node-hex", TileGlyph: "brand:nodedotjs", TintLight: ui.Hex("#267339"), TintDark: ui.Hex("#5fd38d")},
+		"bun":       {Name: "Bun", Glyph: "brand:bun", TintLight: ui.Hex("#7a5019"), TintDark: ui.Hex("#f5c98c")},
+		"deno":      {Name: "Deno", Glyph: "brand:deno", TintLight: ui.Hex("#1d1d1f"), TintDark: ui.Hex("#f2f3f8")},
+		"python":    {Name: "Python", Glyph: "brand:python", TintLight: ui.Hex("#1f5f99"), TintDark: ui.Hex("#7ebcff")},
+		"lazygit":   {Name: "Git Changes", Glyph: "plus-minus-circle", TileGlyph: "diff", TintLight: ui.Hex("#1a8f4c"), TintDark: ui.Hex("#30d158")},
+		"tig":       {Name: "Git Log", Glyph: "git-branch", TintLight: ui.Hex("#c94124"), TintDark: ui.Hex("#ff7b61")},
+		"git":       {Name: "Git", Glyph: "brand:git", TintLight: ui.Hex("#c94124"), TintDark: ui.Hex("#ff7b61")},
+		"vim":       {Name: "Vim", Glyph: "brand:vim", TintLight: ui.Hex("#187d38"), TintDark: ui.Hex("#4ade80")},
+		"nvim":      {Name: "Neovim", Glyph: "brand:neovim", TintLight: ui.Hex("#1c7542"), TintDark: ui.Hex("#5eead4")},
+		"hx":        {Name: "Helix", Glyph: "brand:helix", TintLight: ui.Hex("#5a48b8"), TintDark: ui.Hex("#c4b5fd")},
+		"emacs":     {Name: "Emacs", Glyph: "brand:gnuemacs", TintLight: ui.Hex("#5a48b8"), TintDark: ui.Hex("#b794f4")},
+		"htop":      {Name: "Activity", Glyph: "activity", TintLight: ui.Hex("#147d5b"), TintDark: ui.Hex("#38d9a9")},
+		"btop":      {Name: "Activity", Glyph: "activity", TintLight: ui.Hex("#147d5b"), TintDark: ui.Hex("#38d9a9")},
+		"top":       {Name: "Activity", Glyph: "activity", TintLight: ui.Hex("#147d5b"), TintDark: ui.Hex("#38d9a9")},
+		"ssh":       {Name: "SSH", Glyph: "globe", TintLight: ui.Hex("#035ca3"), TintDark: ui.Hex("#7ebcff")},
+		"mosh":      {Name: "Mosh", Glyph: "globe", TintLight: ui.Hex("#035ca3"), TintDark: ui.Hex("#7ebcff")},
+		"docker":    {Name: "Docker", Glyph: "brand:docker", TintLight: ui.Hex("#0264b5"), TintDark: ui.Hex("#5cb8ff")},
+		"go":        {Name: "Go", Glyph: "brand:go", TintLight: ui.Hex("#006d8f"), TintDark: ui.Hex("#5ce1e6")},
+		"cargo":     {Name: "Cargo", Glyph: "brand:rust", TintLight: ui.Hex("#9e4716"), TintDark: ui.Hex("#f4a261")},
+		"rustc":     {Name: "Rust", Glyph: "brand:rust", TintLight: ui.Hex("#9e4716"), TintDark: ui.Hex("#f4a261")},
+		"npm":       {Name: "npm", Glyph: "brand:npm", TintLight: ui.Hex("#b82928"), TintDark: ui.Hex("#ff6b6b")},
+		"pnpm":      {Name: "pnpm", Glyph: "brand:pnpm", TintLight: ui.Hex("#a85d00"), TintDark: ui.Hex("#ffc75c")},
+		"yarn":      {Name: "Yarn", Glyph: "brand:yarn", TintLight: ui.Hex("#196b91"), TintDark: ui.Hex("#74c0fc")},
+		"ruby":      {Name: "Ruby", Glyph: "brand:ruby", TintLight: ui.Hex("#b52822"), TintDark: ui.Hex("#ff7575")},
+		"irb":       {Name: "Ruby", Glyph: "brand:ruby", TintLight: ui.Hex("#b52822"), TintDark: ui.Hex("#ff7575")},
+		"lua":       {Name: "Lua", Glyph: "brand:lua", TintLight: ui.Hex("#2c3e99"), TintDark: ui.Hex("#91a7ff")},
+		"php":       {Name: "PHP", Glyph: "brand:php", TintLight: ui.Hex("#4c5194"), TintDark: ui.Hex("#a5b4fc")},
+		"psql":      {Name: "PostgreSQL", Glyph: "brand:postgresql", TintLight: ui.Hex("#235784"), TintDark: ui.Hex("#7ebcff")},
+		"mysql":     {Name: "MySQL", Glyph: "brand:mysql", TintLight: ui.Hex("#00647d"), TintDark: ui.Hex("#66d9e8")},
+		"redis-cli": {Name: "Redis", Glyph: "brand:redis", TintLight: ui.Hex("#bd2419"), TintDark: ui.Hex("#ff6b6b")},
+		"tmux":      {Name: "tmux", Glyph: "brand:tmux", TintLight: ui.Hex("#187d38"), TintDark: ui.Hex("#30d158")},
+		"make":      {Name: "Make", Glyph: "cpu", TintLight: ui.Hex("#4b5563"), TintDark: ui.Hex("#cbd5e1")},
+		"swift":     {Name: "Swift", Glyph: "brand:swift", TintLight: ui.Hex("#c73d26"), TintDark: ui.Hex("#ff7f66")},
+		"kotlin":    {Name: "Kotlin", Glyph: "brand:kotlin", TintLight: ui.Hex("#6338d9"), TintDark: ui.Hex("#b197fc")},
+	}
+
+	shells = map[string]bool{
+		"zsh": true, "bash": true, "fish": true, "sh": true, "dash": true,
+		"nu": true, "pwsh": true, "elvish": true, "xonsh": true, "tcsh": true,
+		"csh": true, "ksh": true, "cmd": true, "powershell": true,
+	}
 )
 
 func init() {
@@ -99,11 +126,11 @@ func init() {
 	programs["ipython"] = programs["python"]
 	programs["view"] = programs["vim"]
 	programs["vi"] = programs["vim"]
-	programs["less"] = program{Name: "Pager", Glyph: "file-code", TileBg: ui.Hex("#475569"), TileFg: ui.Hex("#ffffff")}
+	programs["less"] = program{Name: "Pager", Glyph: "file-code", TintLight: ui.Hex("#3c4b5e"), TintDark: ui.Hex("#cbd5e1")}
 	programs["man"] = programs["less"]
 }
 
-// programOf returns how a program shows, by the name of its process.
+// programOf returns how a program renders by its process name.
 func programOf(name string) program {
 	name = strings.TrimPrefix(path.Base(name), "-")
 	if p, ok := programs[strings.ToLower(name)]; ok {
@@ -114,19 +141,19 @@ func programOf(name string) program {
 		p.Name = name
 		return p
 	}
-	// Any other program: its own name, on a tile of a color of its own.
-	p := program{Name: name, Glyph: "square-terminal", TileGlyph: "terminal", TileFg: ui.Hex("#ffffff")}
-	p.TileBg = hashColor(name)
-	return p
+	return program{
+		Name:      name,
+		Glyph:     "square-terminal",
+		TileGlyph: "terminal",
+		DataIndex: hashIndex(name, 8),
+	}
 }
 
-// hashColor picks a color for a name, the same every time.
-func hashColor(s string) ui.Color {
-	palette := []string{"#6d5bd0", "#2f80ed", "#0f9d8a", "#d9822b", "#c2417d", "#3a7d44", "#8a5a44", "#4e5d94"}
+func hashIndex(s string, n int) int {
 	h := uint32(2166136261)
 	for i := 0; i < len(s); i++ {
 		h ^= uint32(s[i])
 		h *= 16777619
 	}
-	return ui.Hex(palette[h%uint32(len(palette))])
+	return int(h % uint32(n))
 }

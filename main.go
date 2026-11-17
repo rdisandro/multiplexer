@@ -1,7 +1,7 @@
-// GoRex is a terminal of tabs and split panes, after Superlogical's Rex,
-// in MyGo's native UI. Its shells run in a session server of their own,
-// so that they outlive the app: quit it, open it again, and every tab and
-// pane is back as it was, its programs still running.
+// Multiplexer is a native macOS and cross-platform terminal of tabs and split panes,
+// built with MyGo's native UI and Ghostty's libghostty-vt, styled to the
+// Near AI OS Design System & TCDesign Liquid Glass architecture. Its shells run
+// in a persistent session server so they outlive the app across restarts.
 //
 //	go tool mygo dev    the app, rebuilt as the code changes
 //	go run . -server    the session server alone, in the foreground
@@ -17,7 +17,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
-	"gorex/internal/rex"
+	"multiplexer/internal/rex"
 )
 
 func main() {
@@ -31,18 +31,22 @@ func main() {
 		return
 	}
 	// The state of the sessions lives in the app's data directory, which
-	// the server it starts takes from GOREX_DIR: "GoRex", or "GoRex Dev"
-	// under mygo dev, which keeps the installed app's sessions apart.
-	if os.Getenv("GOREX_DIR") == "" {
+	// the server it starts takes from MULTIPLEXER_DIR: "Multiplexer", or
+	// "Multiplexer Dev" under mygo dev, keeping installed sessions apart.
+	if os.Getenv("MULTIPLEXER_DIR") == "" {
 		if dir, err := mygo.App.Path(mygo.PathUserData); err == nil {
-			os.Setenv("GOREX_DIR", dir)
+			os.Setenv("MULTIPLEXER_DIR", dir)
 		}
 	}
 	registerFonts()
 	loadSettings()
-	a := &App{}
+	a := &App{settingsSection: "general"}
 	mygo.App.SetMenu(a.menu())
-	mygo.App.WhenReady(a.open)
+	mygo.App.WhenReady(func() {
+		appRunning = true
+		applyAppearance()
+		a.open()
+	})
 	mygo.App.OnActivate(func(hasVisibleWindows bool) {
 		if !hasVisibleWindows && a.win == nil {
 			a.open()
@@ -55,18 +59,21 @@ func main() {
 	})
 	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
 		a.saveNow()
+		if a.settingsWin != nil {
+			a.settingsWin.Close()
+		}
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
 	}
 }
 
-// open opens the window, with the tabs the server kept.
+// open opens the main window, restoring the tabs the session server kept.
 func (a *App) open() {
 	client, err := rex.Connect()
 	if err != nil {
 		log.Print(err)
-		mygo.Dialog.Error("GoRex could not start its session server", err.Error())
+		mygo.Dialog.Error("Multiplexer could not start its session server", err.Error())
 		mygo.App.Quit()
 		return
 	}
@@ -80,33 +87,36 @@ func (a *App) open() {
 			a.hello, err = client.Hello()
 		} else {
 			log.Print(err)
-			mygo.Dialog.Error("GoRex could not restart its session server", err.Error())
+			mygo.Dialog.Error("Multiplexer could not restart its session server", err.Error())
 			mygo.App.Quit()
 			return
 		}
 	}
 	if err == nil && a.hello.Version != rex.ProtocolVersion {
-		a.err = "The session server is of another version of GoRex: quit and end all sessions to restart it."
+		a.err = "Session server version mismatch. Another build of Multiplexer started the background server. Quit and end all sessions to restart it cleanly."
 	}
 	a.reset()
 	opts := mygo.WindowOptions{
-		Title:                "GoRex",
-		Width:                1000,
-		Height:               620,
-		MinWidth:             560,
-		MinHeight:            340,
+		Title:                "Multiplexer",
+		Width:                1120,
+		Height:               660,
+		MinWidth:             580,
+		MinHeight:            380,
 		StateKey:             "main",
+		Transparent:          runtime.GOOS == "darwin",
 		TitleBarStyle:        mygo.TitleBarHidden,
-		TrafficLightPosition: &mygo.Point{X: 16, Y: 15},
-		BackgroundColor:      "light-dark(#efe1e6, #231e27)",
+		TrafficLightPosition: &mygo.Point{X: 16, Y: 19}, // Centered at y=26pt inside the main GlassPane
+		BackgroundColor:      "light-dark(#e6eaf1, #070a1a)",
 		Content:              ui.View(a.view),
 	}
 	if ownControls {
-		// The title bar draws the window's controls (windowControls).
 		opts.TitleBarStyle, opts.Frameless = mygo.TitleBarDefault, true
 	}
 	win := mygo.NewWindow(opts)
 	a.win = win
+	nsHandle := win.NativeHandle()
+	configureGlassWindow(nsHandle)
+
 	if !a.restore() {
 		home, _ := os.UserHomeDir()
 		a.newTab(home)
@@ -115,6 +125,7 @@ func (a *App) open() {
 	go a.poll(win, client)
 	a.debugHook()
 	win.OnClosed(func() {
+		removeGlassWindow(nsHandle)
 		a.saveNow()
 		a.quitting = true
 		for _, t := range a.tabs {
@@ -128,6 +139,35 @@ func (a *App) open() {
 		a.client.Close()
 		a.win = nil
 	})
+}
+
+// reconnect reconnects to the session server after an unexpected disconnect.
+func (a *App) reconnect() {
+	client, err := rex.Connect()
+	if err != nil {
+		a.err = "Could not reconnect to the session server. " + err.Error()
+		return
+	}
+	if a.client != nil {
+		a.client.Close()
+	}
+	a.client = client
+	a.hello, _ = client.Hello()
+	a.err = ""
+	for _, t := range a.tabs {
+		for _, p := range t.panes() {
+			cols, rows := 80, 24
+			if p.term != nil {
+				cols, rows = p.term.Size()
+				p.term.Close()
+				p.term = nil
+			}
+			a.attach(p, cols, rows)
+		}
+	}
+	if a.win != nil {
+		go a.poll(a.win, client)
+	}
 }
 
 // saveNow sends the layout to the server and waits for it to be kept.

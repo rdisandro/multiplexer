@@ -1,4 +1,4 @@
-module gorex
+module multiplexer
 
 go 1.27.1
 

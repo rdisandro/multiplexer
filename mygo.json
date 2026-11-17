@@ -1,8 +1,8 @@
 {
-  "name": "GoRex",
-  "identifier": "dev.gorex.app",
+  "name": "Multiplexer",
+  "identifier": "ai.near.multiplexer",
   "version": "0.1.0",
-  "copyright": "A replica of Superlogical's Rex, built with MyGo",
+  "copyright": "Multiplexer · Near AI OS Design System · Built with MyGo",
   "out": "build",
-  "macos": { "minimumSystemVersion": "13.0" }
+  "macos": { "minimumSystemVersion": "14.0" }
 }

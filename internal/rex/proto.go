@@ -1,4 +1,4 @@
-// Package rex is GoRex's session server and its client.
+// Package rex is Multiplexer's session server and its client.
 //
 // The server owns the pseudo-terminals: shells keep running when the app
 // quits, and the next launch attaches to them again, with what they printed
@@ -134,14 +134,14 @@ type Attach struct {
 
 // Dir returns the directory of the server's socket, log and state.
 func Dir() string {
-	if d := os.Getenv("GOREX_DIR"); d != "" {
+	if d := os.Getenv("MULTIPLEXER_DIR"); d != "" {
 		return d
 	}
 	base, err := os.UserConfigDir()
 	if err != nil {
 		base = os.TempDir()
 	}
-	return filepath.Join(base, "GoRex")
+	return filepath.Join(base, "Multiplexer")
 }
 
 // SocketPath returns the path of the server's socket: in Dir, unless that
@@ -154,9 +154,9 @@ func SocketPath() string {
 	}
 	h := fnv.New32a()
 	h.Write([]byte(p))
-	dir := fmt.Sprintf("gorex-%x", h.Sum32())
+	dir := fmt.Sprintf("multiplexer-%x", h.Sum32())
 	if uid := os.Getuid(); uid >= 0 { // Windows has none, and a temporary directory per user
-		dir = fmt.Sprintf("gorex-%d-%x", uid, h.Sum32())
+		dir = fmt.Sprintf("multiplexer-%d-%x", uid, h.Sum32())
 	}
 	return filepath.Join(os.TempDir(), dir, "server.sock")
 }

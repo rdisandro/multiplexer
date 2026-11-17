@@ -16,7 +16,7 @@ import (
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 
-	"gorex/internal/rex"
+	"multiplexer/internal/rex"
 )
 
 // Tab is a tab of the window: panes in a tree of splits.
@@ -72,12 +72,16 @@ type Pane struct {
 	startDir string
 }
 
-// App is the state of GoRex's window.
+// App is the state of Multiplexer's window.
 type App struct {
-	win    *mygo.Window
-	client *rex.Client
-	hello  rex.Hello
-	err    string
+	win               *mygo.Window
+	settingsWin       *mygo.Window
+	settingsSection   string
+	settingsScrollReq string
+	inspectorOpen     bool
+	client            *rex.Client
+	hello           rex.Hello
+	err             string
 
 	tabs   []*Tab
 	active int
@@ -192,8 +196,21 @@ func (a *App) newPane(dir string, cols, rows int) *Pane {
 
 // attach makes the pane's terminal, attached to its session.
 func (a *App) attach(p *Pane, cols, rows int) {
+	light, dark := activeTerminalThemes()
+	cur := cursorStyleOf(prefs.CursorStyle)
+	noBlink := !prefs.CursorBlink
+	optAlt := prefs.OptionAsAlt
 	if p.SID == "" {
-		term, err := terminal.New(terminal.Options{Conn: nopConn{}, Transparent: true, Font: termFont, Theme: lightTerm, DarkTheme: darkTerm})
+		term, err := terminal.New(terminal.Options{
+			Conn:        nopConn{},
+			Transparent: true,
+			Font:        termFont,
+			Theme:       light,
+			DarkTheme:   dark,
+			Cursor:      cur,
+			NoBlink:     noBlink,
+			OptionAsAlt: optAlt,
+		})
 		if err == nil {
 			term.Feed([]byte("\x1b[31mCould not start a session: " + a.err + "\x1b[0m\r\n"))
 			p.term = term
@@ -215,8 +232,11 @@ func (a *App) attach(p *Pane, cols, rows int) {
 	term, err := terminal.New(terminal.Options{
 		Conn:        p.stream,
 		Font:        termFont,
-		Theme:       lightTerm,
-		DarkTheme:   darkTerm,
+		Theme:       light,
+		DarkTheme:   dark,
+		Cursor:      cur,
+		NoBlink:     noBlink,
+		OptionAsAlt: optAlt,
 		Transparent: true,
 		OnTitle: func(title string) {
 			update(func() { p.title = title })
@@ -226,7 +246,7 @@ func (a *App) attach(p *Pane, cols, rows int) {
 		},
 		OnNotify: func(title, body string) {
 			if title == "" {
-				title = "GoRex"
+				title = "Multiplexer"
 			}
 			mygo.NewNotification(mygo.NotificationOptions{Title: title, Body: body}).Show()
 		},
@@ -247,6 +267,42 @@ func (a *App) attach(p *Pane, cols, rows int) {
 	// attaching changes nothing in the session.
 	term.Resize(cols, rows)
 	p.term = term
+}
+
+// refreshTerminals updates fonts/themes or reattaches open pane terminals when
+// cursor or keyboard options change, preserving every running session.
+func (a *App) refreshTerminals(reattach bool) {
+	light, dark := activeTerminalThemes()
+	for _, t := range a.tabs {
+		for _, p := range t.panes() {
+			if p.term == nil {
+				continue
+			}
+			if !reattach {
+				p.term.SetFont(termFont)
+				p.term.SetTheme(light, dark)
+				continue
+			}
+			cols, rows := p.term.Size()
+			p.term.Close()
+			p.term = nil
+			a.attach(p, cols, rows)
+		}
+	}
+	if nt := a.tab(); nt != nil && reattach {
+		a.focusReq = nt.Focus
+	}
+}
+
+// invalidateAll requests a fresh frame on both the main window and Settings window.
+func (a *App) invalidateAll() {
+	a.services.Invalidate()
+	if a.win != nil {
+		a.win.Update(func() {})
+	}
+	if a.settingsWin != nil {
+		a.settingsWin.Update(func() {})
+	}
 }
 
 // nopConn is the Conn of a terminal that only shows what the app feeds it.
@@ -827,7 +883,7 @@ func (a *App) poll(win *mygo.Window, client *rex.Client) {
 		case <-client.Closed():
 			win.Update(func() {
 				if !a.quitting {
-					a.err = "Lost the connection to the session server."
+					a.err = "Connection to the session server was lost. The background server exited or became unreachable. Reconnect to start or attach to a session server."
 				}
 			})
 			return

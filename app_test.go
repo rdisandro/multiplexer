@@ -12,7 +12,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"gorex/internal/rex"
+	"multiplexer/internal/rex"
 )
 
 // testShell is the shell of the tests: its prompt ends with prompt, and
@@ -34,7 +34,7 @@ func testDir(t *testing.T) string {
 	if runtime.GOOS == "windows" {
 		base = ""
 	}
-	dir, err := os.MkdirTemp(base, "gorex")
+	dir, err := os.MkdirTemp(base, "mux")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func testDir(t *testing.T) string {
 func newTestApp(t *testing.T) (*App, *ui.Tester) {
 	t.Helper()
 	dir := testDir(t)
-	t.Setenv("GOREX_DIR", dir)
+	t.Setenv("MULTIPLEXER_DIR", dir)
 	t.Setenv("SHELL", testShell.path)
 	go rex.Serve()
 	var client *rex.Client
@@ -335,5 +335,110 @@ func TestPaletteScrolls(t *testing.T) {
 	tt.Frame()
 	if r, _ := tt.Find("shell01"); r.H == 0 {
 		t.Error("the keys chose a row out of sight")
+	}
+}
+
+func TestPaletteTwoStepEscape(t *testing.T) {
+	registerFonts()
+	a := &App{}
+	tt := ui.NewTester(func(c *ui.Context) { a.palette(c, colorsOf(c)) }, 1000, 620)
+	a.openPalette()
+	tt.Frame()
+	tt.Type("split")
+	tt.Frame()
+	if a.paletteQuery != "split" {
+		t.Fatalf("query = %q, want split", a.paletteQuery)
+	}
+	// First Escape clears the query while keeping the Command Palette open.
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if !a.paletteOpen || a.paletteQuery != "" {
+		t.Fatalf("after first Escape: open=%v query=%q", a.paletteOpen, a.paletteQuery)
+	}
+	// Second Escape closes the Command Palette.
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if a.paletteOpen {
+		t.Fatal("after second Escape: palette remained open")
+	}
+}
+
+func TestSettingsAndNoticeViews(t *testing.T) {
+	dir := testDir(t)
+	t.Setenv("MULTIPLEXER_DIR", dir)
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	registerFonts()
+	loadSettings()
+
+	a := &App{settingsSection: "general"}
+	st := ui.NewTester(a.settingsView, 760, 540)
+	st.Frame()
+
+	// Switch product theme and appearance via segmented controls and verify persistence.
+	if err := st.Click("Trace"); err != nil {
+		t.Fatal(err)
+	}
+	st.Frame()
+	if prefs.ProductTheme != "trace" {
+		t.Errorf("ProductTheme = %q, want trace", prefs.ProductTheme)
+	}
+	if err := st.Click("Dark"); err != nil {
+		t.Fatal(err)
+	}
+	st.Frame()
+	if prefs.Appearance != "dark" {
+		t.Errorf("Appearance = %q, want dark", prefs.Appearance)
+	}
+
+	// Navigate across Settings sections (Terminal, Sessions, About).
+	for _, sec := range []string{"Terminal", "Sessions", "About"} {
+		if err := st.Click(sec); err != nil {
+			t.Fatalf("clicking %s: %v", sec, err)
+		}
+		st.Frame()
+	}
+	if !st.HasText("Multiplexer 0.1.0") {
+		t.Errorf("About section missing version; texts=%q", st.Texts())
+	}
+
+	// Reload settings from disk to confirm immediate persistence without a Save button.
+	prefs = settings{}
+	loadSettings()
+	if prefs.ProductTheme != "trace" || prefs.Appearance != "dark" {
+		t.Errorf("reloaded prefs = %+v", prefs)
+	}
+	// Restore defaults for subsequent tests.
+	a.setProductTheme("")
+	a.setAppearance("")
+
+	// Verify inline Notice banner renders Problem-Cause-Solution copy and dismisses cleanly.
+	a.err = "Connection to the session server was lost. Reconnect to attach again."
+	vt := ui.NewTester(a.view, 1000, 620)
+	vt.Frame()
+	if !vt.HasText("Session server needs attention.") {
+		t.Fatalf("Notice title missing; texts=%q", vt.Texts())
+	}
+	if err := vt.Click("Dismiss"); err != nil {
+		t.Fatal(err)
+	}
+	vt.Frame()
+	if a.err != "" {
+		t.Errorf("Notice was not dismissed: err=%q", a.err)
+	}
+
+	// Verify floating Inspector GlassPane opens and closes from the toolbar capsule.
+	if err := vt.Click("Show Inspector"); err != nil {
+		t.Fatalf("Show Inspector: %v", err)
+	}
+	vt.Frame()
+	if !a.inspectorOpen || !vt.HasText("SESSION SERVER") {
+		t.Fatalf("Inspector did not open; open=%v texts=%q", a.inspectorOpen, vt.Texts())
+	}
+	if err := vt.Click("Hide Inspector"); err != nil {
+		t.Fatalf("Hide Inspector: %v", err)
+	}
+	vt.Frame()
+	if a.inspectorOpen {
+		t.Errorf("Inspector stayed open")
 	}
 }

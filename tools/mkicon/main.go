@@ -1,5 +1,7 @@
-// Mkicon draws GoRex's icon, resources/icon.png: the window's gradient in
-// the squircle of macOS icons, with panes on it as the app splits them.
+// Mkicon draws Multiplexer's macOS/app icon (resources/icon.png, 1024×1024) in the
+// Near AI OS Design System palette: a continuous-curvature macOS squircle on
+// deep midnight navy (#070a1a -> #0d1124 -> #11152b) with an Ember Rule tab
+// bar and flat-glass split terminal panes accented in NEAR AI blue (#0091fd / #7ebcff).
 //
 //	go run ./tools/mkicon
 package main
@@ -20,53 +22,95 @@ const size = 1024
 
 func main() {
 	img := image.NewRGBA(image.Rect(0, 0, size, size))
-	// The squircle of macOS's icon grid: 824 wide, inset by 100.
+
+	// Standard macOS 1024px icon grid: 824×824 squircle inset by 100px.
 	x0, y0, w := float32(100), float32(100), float32(824)
-	shadow(img, x0+6, y0+12, w-12, w-12, 186, 20, color.RGBA{60, 30, 50, 46})
-	grad := gradient(size, []stop{{0, rgb(0xf7e4f6)}, {0.45, rgb(0xeedbe3)}, {0.7, rgb(0xeeddd0)}, {1, rgb(0xebdcb2)}})
-	fill(img, squircle(x0, y0, w, w, 186), grad)
-	// The panes: one left above another, one right, as the app shows them.
-	pad, gap := float32(70), float32(36)
-	inner := w - 2*pad
-	lw := inner*0.54 - gap/2
-	th := inner*0.5 - gap/2
-	cards := []struct {
-		x, y, w, h float32
-		a          uint8
+	shadow(img, x0+8, y0+18, w-16, w-16, 186, 28, color.RGBA{2, 3, 10, 110})
+
+	// Near AI OS dark scene ground with subtle top-left brand-blue radial glow.
+	bg := sceneBackdrop(int(x0), int(y0), int(w))
+	fill(img, squircle(x0, y0, w, w), bg)
+
+	pad := float32(68)
+	innerX := x0 + pad
+	innerW := w - 2*pad
+
+	// Top chrome: Ember Rule tab indicator + status pill inset comfortably inside squircle corners.
+	barY := y0 + 62
+	barX := innerX + 20
+	barW := innerW - 40
+	// Subtle 1px-equivalent rule under tab strip.
+	fill(img, rounded(barX, barY+34, barW, 4, 2), image.NewUniform(color.NRGBA{255, 255, 255, 34}))
+	// Active tab label bar + glowing tab-ember bar (#0091fd) underneath.
+	fill(img, rounded(barX+20, barY+8, 128, 14, 7), image.NewUniform(rgb(0xf2f3f8)))
+	fill(img, rounded(barX+6, barY+22, 156, 12, 6), image.NewUniform(color.NRGBA{0, 145, 253, 52}))
+	fill(img, rounded(barX+12, barY+32, 144, 6, 3), image.NewUniform(rgb(0x0091fd)))
+	// Inactive tab pill hint + right status dot.
+	fill(img, rounded(barX+196, barY+8, 108, 14, 7), image.NewUniform(color.NRGBA{242, 243, 248, 72}))
+	fill(img, rounded(barX+barW-26, barY+5, 20, 20, 10), image.NewUniform(rgb(0x30d158)))
+
+	// Split terminal panes: flat cards (no card drop shadows, per NDS-2/NDS-9).
+	panesTop := barY + 58
+	panesH := (y0 + w - pad) - panesTop
+	gap := float32(28)
+	lw := innerW*0.55 - gap/2
+	th := panesH*0.54 - gap/2
+
+	// Focused top-left pane (card-on-opaque #171c33, lifted slightly for icon legibility).
+	c0x, c0y, c0w, c0h := innerX, panesTop, lw, th
+	fill(img, rounded(c0x, c0y, c0w, c0h, 40), image.NewUniform(color.NRGBA{26, 34, 64, 248}))
+
+	// Unfocused bottom-left pane (card-quiet #13182d).
+	c1x, c1y, c1w, c1h := innerX, panesTop+th+gap, lw, panesH-th-gap
+	fill(img, rounded(c1x, c1y, c1w, c1h, 40), image.NewUniform(color.NRGBA{19, 25, 48, 224}))
+
+	// Right split pane (card-quiet #13182d).
+	c2x, c2y, c2w, c2h := innerX+lw+gap, panesTop, innerW-lw-gap, panesH
+	fill(img, rounded(c2x, c2y, c2w, c2h, 40), image.NewUniform(color.NRGBA{19, 25, 48, 224}))
+
+	// Focused pane prompt: luminous NEAR AI accent chevron (#7ebcff) + primary cursor (#f2f3f8).
+	accent := image.NewUniform(rgb(0x7ebcff))
+	ink := image.NewUniform(rgb(0xf2f3f8))
+	cx, cy := c0x+58, c0y+c0h*0.52
+	for _, seg := range stroke([][2]float32{{cx, cy - 52}, {cx + 56, cy}, {cx, cy + 52}}, 26) {
+		fill(img, seg, accent)
+	}
+	fill(img, rounded(cx+88, cy+28, 96, 24, 12), ink)
+
+	// Bottom-left pane: structured CLI output lines.
+	lines1 := []struct {
+		frac float32
+		col  color.NRGBA
 	}{
-		{x0 + pad, y0 + pad + 40, lw, th, 250},
-		{x0 + pad, y0 + pad + 40 + th + gap, lw, inner - th - gap - 40, 175},
-		{x0 + pad + lw + gap, y0 + pad + 40, inner - lw - gap, inner - 40, 175},
+		{0.68, color.NRGBA{242, 243, 248, 185}},
+		{0.46, color.NRGBA{0, 145, 253, 220}},
+		{0.76, color.NRGBA{242, 243, 248, 120}},
 	}
-	for _, c := range cards {
-		shadow(img, c.x, c.y+8, c.w, c.h, 44, 22, color.RGBA{80, 40, 60, 40})
-		fill(img, rounded(c.x, c.y, c.w, c.h, 44), image.NewUniform(color.NRGBA{255, 255, 255, c.a}))
+	for i, ln := range lines1 {
+		ly := c1y + 50 + float32(i)*46
+		fill(img, rounded(c1x+46, ly, (c1w-92)*ln.frac, 20, 10), image.NewUniform(ln.col))
 	}
-	// A prompt on the first pane: a chevron and a cursor.
-	c := cards[0]
-	ink := image.NewUniform(color.NRGBA{42, 45, 49, 255})
-	green := image.NewUniform(color.NRGBA{78, 142, 95, 255})
-	cx, cy := c.x+68, c.y+c.h/2-6
-	for _, r := range stroke([][2]float32{{cx, cy - 58}, {cx + 62, cy}, {cx, cy + 58}}, 26) {
-		fill(img, r, green)
+
+	// Right pane: header hairline + live process rows with positive/accent indicators.
+	fill(img, rounded(c2x+36, c2y+68, c2w-72, 3, 1.5), image.NewUniform(color.NRGBA{255, 255, 255, 26}))
+	fill(img, rounded(c2x+36, c2y+34, 108, 16, 8), image.NewUniform(color.NRGBA{242, 243, 248, 175}))
+
+	rows := []struct {
+		dot  color.NRGBA
+		frac float32
+	}{
+		{rgb(0x30d158), 0.72},
+		{rgb(0x0091fd), 0.54},
+		{rgb(0x7ebcff), 0.66},
+		{color.NRGBA{169, 169, 176, 180}, 0.44},
 	}
-	fill(img, rounded(cx+100, cy+34, 104, 26, 13), ink)
-	// Snake dots on the right pane.
-	r := cards[2]
-	for i := 0; i < 4; i++ {
-		fill(img, rounded(r.x+52+float32(i)*44, r.y+r.h*0.42, 30, 30, 7), image.NewUniform(color.NRGBA{86, 141, 102, 255}))
+	for i, rw := range rows {
+		ry := c2y + 114 + float32(i)*78
+		fill(img, rounded(c2x+40, ry, 22, 22, 11), image.NewUniform(rw.dot))
+		fill(img, rounded(c2x+78, ry+2, (c2w-118)*rw.frac, 18, 9), image.NewUniform(color.NRGBA{242, 243, 248, 165}))
+		fill(img, rounded(c2x+78, ry+30, (c2w-118)*(rw.frac*0.65), 12, 6), image.NewUniform(color.NRGBA{242, 243, 248, 78}))
 	}
-	fill(img, rounded(r.x+52+3*44, r.y+r.h*0.42+44, 30, 30, 7), image.NewUniform(color.NRGBA{86, 141, 102, 255}))
-	fill(img, rounded(r.x+r.w-100, r.y+r.h*0.7, 34, 34, 17), image.NewUniform(color.NRGBA{188, 83, 98, 255}))
-	// Lines of text on the lower left pane.
-	l := cards[1]
-	for i, lw := range []float32{0.62, 0.44, 0.7} {
-		col := color.NRGBA{120, 120, 128, 150}
-		if i == 1 {
-			col = color.NRGBA{194, 70, 90, 170}
-		}
-		fill(img, rounded(l.x+52, l.y+56+float32(i)*48, (l.w-104)*lw, 22, 11), image.NewUniform(col))
-	}
+
 	if err := os.MkdirAll("resources", 0o755); err != nil {
 		log.Fatal(err)
 	}
@@ -84,42 +128,51 @@ func rgb(v uint32) color.NRGBA {
 	return color.NRGBA{uint8(v >> 16), uint8(v >> 8), uint8(v), 255}
 }
 
-type stop struct {
-	at float64
-	c  color.NRGBA
-}
+// sceneBackdrop paints the Near AI OS midnight-navy canvas (#070a1a..#11152b)
+// with a subtle radial brand-blue (#0091fd) glow in the upper-left quadrant.
+func sceneBackdrop(x0, y0, w int) image.Image {
+	img := image.NewNRGBA(image.Rect(0, 0, size, size))
+	top := rgb(0x111833)
+	mid := rgb(0x0d1124)
+	bot := rgb(0x070a1a)
+	glowX, glowY := float64(x0)+float64(w)*0.24, float64(y0)+float64(w)*0.18
+	glowR := float64(w) * 0.72
 
-// gradient is a vertical gradient through stops.
-func gradient(h int, stops []stop) image.Image {
-	img := image.NewNRGBA(image.Rect(0, 0, 1, h))
-	for y := 0; y < h; y++ {
-		t := float64(y) / float64(h-1)
-		i := 0
-		for i < len(stops)-2 && t > stops[i+1].at {
-			i++
+	for y := y0; y < y0+w; y++ {
+		t := float64(y-y0) / float64(w-1)
+		var base color.NRGBA
+		if t < 0.5 {
+			base = lerpColor(top, mid, t/0.5)
+		} else {
+			base = lerpColor(mid, bot, (t-0.5)/0.5)
 		}
-		a, b := stops[i], stops[i+1]
-		f := math.Max(0, math.Min(1, (t-a.at)/(b.at-a.at)))
-		mix := func(p, q uint8) uint8 { return uint8(float64(p) + (float64(q)-float64(p))*f + 0.5) }
-		img.SetNRGBA(0, y, color.NRGBA{mix(a.c.R, b.c.R), mix(a.c.G, b.c.G), mix(a.c.B, b.c.B), 255})
+		for x := x0; x < x0+w; x++ {
+			dx, dy := float64(x)-glowX, float64(y)-glowY
+			d := math.Hypot(dx, dy) / glowR
+			c := base
+			if d < 1 {
+				g := (1 - d) * (1 - d) * 0.24
+				c = lerpColor(c, rgb(0x0b8ff6), g)
+			}
+			img.SetNRGBA(x, y, c)
+		}
 	}
-	return &stretch{img}
+	return img
 }
 
-// stretch repeats a one-pixel-wide image across.
-type stretch struct{ *image.NRGBA }
-
-func (s *stretch) Bounds() image.Rectangle { return image.Rect(0, 0, size, size) }
-func (s *stretch) At(x, y int) color.Color { return s.NRGBA.At(0, y) }
-func (s *stretch) ColorModel() color.Model { return color.NRGBAModel }
+func lerpColor(a, b color.NRGBA, t float64) color.NRGBA {
+	t = math.Max(0, math.Min(1, t))
+	mix := func(p, q uint8) uint8 { return uint8(float64(p) + (float64(q)-float64(p))*t + 0.5) }
+	return color.NRGBA{mix(a.R, b.R), mix(a.G, b.G), mix(a.B, b.B), 255}
+}
 
 func fill(dst *image.RGBA, r *vector.Rasterizer, src image.Image) {
 	r.Draw(dst, dst.Bounds(), src, image.Point{})
 }
 
-// rounded is a rounded rectangle.
 func rounded(x, y, w, h, rad float32) *vector.Rasterizer {
 	r := vector.NewRasterizer(size, size)
+	rad = min(rad, min(w, h)/2)
 	k := rad * 0.5523
 	r.MoveTo(x+rad, y)
 	r.LineTo(x+w-rad, y)
@@ -134,9 +187,7 @@ func rounded(x, y, w, h, rad float32) *vector.Rasterizer {
 	return r
 }
 
-// squircle is a rounded rectangle of continuous curvature, as macOS's
-// icons: a superellipse.
-func squircle(x, y, w, h, _ float32) *vector.Rasterizer {
+func squircle(x, y, w, h float32) *vector.Rasterizer {
 	r := vector.NewRasterizer(size, size)
 	const n = 5.0
 	cx, cy, a, b := float64(x+w/2), float64(y+h/2), float64(w/2), float64(h/2)
@@ -155,8 +206,6 @@ func squircle(x, y, w, h, _ float32) *vector.Rasterizer {
 	return r
 }
 
-// stroke is a polyline of a width, with round joins and caps: shapes to
-// fill one by one, as their windings would cancel where they overlap.
 func stroke(pts [][2]float32, width float32) []*vector.Rasterizer {
 	var out []*vector.Rasterizer
 	hw := width / 2
@@ -191,8 +240,6 @@ func circle(r *vector.Rasterizer, cx, cy, rad float32) {
 	r.ClosePath()
 }
 
-// shadow draws a soft shadow of a rounded rectangle, as layers of a
-// little alpha each, growing.
 func shadow(dst *image.RGBA, x, y, w, h, rad, blur float32, c color.RGBA) {
 	steps := 12
 	for i := steps; i >= 1; i-- {

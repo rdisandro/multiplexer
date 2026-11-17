@@ -3,120 +3,122 @@ package main
 import (
 	_ "embed"
 
+	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 )
 
-// colors are the app's own, in light and dark windows.
-type colors struct {
-	// The window's background: a gradient from top through mid to bottom,
-	// and a tint toward the right.
-	bgTop, bgMid, bgLow, bgBottom, bgTint ui.Color
-
-	card, cardFocused, cardBorder, cardBorderFocused ui.Color
-	shadow, shadowFocused                            ui.Color
-
-	text, textMuted, textFaint, iconMuted ui.Color
-	hover, pressed                        ui.Color
-
-	track, trackBorder, tabActive, tabSep ui.Color
-	tileRim                               ui.Color
-
-	busy, attention, exited ui.Color
-
-	panel, panelBorder, panelSel, backdrop ui.Color
-}
-
-var lightColors = colors{
-	bgTop:    ui.Hex("#f6e7f6"),
-	bgMid:    ui.Hex("#efe1e6"),
-	bgLow:    ui.Hex("#eee0d3"),
-	bgBottom: ui.Hex("#ece1bd"),
-	bgTint:   ui.RGBA(242, 214, 222, 0.35),
-
-	card:              ui.RGBA(255, 255, 255, 0.66),
-	cardFocused:       ui.RGBA(255, 255, 255, 0.95),
-	cardBorder:        ui.RGBA(255, 255, 255, 0.72),
-	cardBorderFocused: ui.RGBA(255, 255, 255, 1),
-	shadow:            ui.RGBA(60, 40, 50, 0.07),
-	shadowFocused:     ui.RGBA(60, 40, 50, 0.12),
-
-	text:      ui.Hex("#1d1d1f"),
-	textMuted: ui.Hex("#636366"),
-	textFaint: ui.Hex("#8e8e93"),
-	iconMuted: ui.Hex("#8a8a8f"),
-	hover:     ui.RGBA(0, 0, 0, 0.055),
-	pressed:   ui.RGBA(0, 0, 0, 0.1),
-
-	track:       ui.RGBA(255, 255, 255, 0.34),
-	trackBorder: ui.RGBA(255, 255, 255, 0.45),
-	tabActive:   ui.RGBA(255, 255, 255, 0.97),
-	tabSep:      ui.RGBA(0, 0, 0, 0.13),
-	tileRim:     ui.RGBA(255, 255, 255, 0.95),
-
-	busy:      ui.Hex("#34a853"),
-	attention: ui.Hex("#f59e0b"),
-	exited:    ui.Hex("#a1a1a6"),
-
-	panel:       ui.RGBA(252, 252, 253, 0.97),
-	panelBorder: ui.RGBA(0, 0, 0, 0.08),
-	panelSel:    ui.RGBA(46, 111, 208, 0.12),
-	backdrop:    ui.RGBA(40, 20, 40, 0.06),
-}
-
-var darkColors = colors{
-	bgTop:    ui.Hex("#2c2131"),
-	bgMid:    ui.Hex("#231e27"),
-	bgLow:    ui.Hex("#221f22"),
-	bgBottom: ui.Hex("#2a2619"),
-	bgTint:   ui.RGBA(80, 40, 60, 0.25),
-
-	card:              ui.RGBA(20, 20, 24, 0.5),
-	cardFocused:       ui.RGBA(36, 36, 41, 0.94),
-	cardBorder:        ui.RGBA(255, 255, 255, 0.05),
-	cardBorderFocused: ui.RGBA(255, 255, 255, 0.14),
-	shadow:            ui.RGBA(0, 0, 0, 0.25),
-	shadowFocused:     ui.RGBA(0, 0, 0, 0.4),
-
-	text:      ui.Hex("#f2f2f7"),
-	textMuted: ui.Hex("#aeaeb2"),
-	textFaint: ui.Hex("#8e8e93"),
-	iconMuted: ui.Hex("#98989d"),
-	hover:     ui.RGBA(255, 255, 255, 0.08),
-	pressed:   ui.RGBA(255, 255, 255, 0.14),
-
-	track:       ui.RGBA(255, 255, 255, 0.06),
-	trackBorder: ui.RGBA(255, 255, 255, 0.06),
-	tabActive:   ui.RGBA(255, 255, 255, 0.14),
-	tabSep:      ui.RGBA(255, 255, 255, 0.14),
-	tileRim:     ui.RGBA(255, 255, 255, 0.22),
-
-	busy:      ui.Hex("#4ade80"),
-	attention: ui.Hex("#fbbf24"),
-	exited:    ui.Hex("#636366"),
-
-	panel:       ui.RGBA(38, 38, 42, 0.97),
-	panelBorder: ui.RGBA(255, 255, 255, 0.1),
-	panelSel:    ui.RGBA(108, 178, 255, 0.18),
-	backdrop:    ui.RGBA(0, 0, 0, 0.2),
-}
-
-func colorsOf(c *ui.Context) *colors {
-	if c.Theme().Dark {
-		return &darkColors
+// paintSceneBackdrop paints the Near AI OS .nr-scene atmospheric backdrop
+// when native macOS NSGlassEffectView is not active (Linux/Windows or offscreen
+// screenshot capture), giving Liquid Glass panes a rich desktop field to refract.
+func paintSceneBackdrop(p *ui.Painter, r ui.Rect, ts *themeState) {
+	if ts.ReduceTransparency {
+		p.Fill(r, ts.paneOpaque, 0)
+		return
 	}
-	return &lightColors
+	if ts.NativeGlass {
+		return
+	}
+	p.FillGradient(r, ui.LinearGradient{From: ts.sceneWarm, To: ts.scene, Angle: 160}, 0)
+	g1 := ts.sceneGlow1.Alpha(0.46)
+	g2 := ts.sceneGlow2.Alpha(0.36)
+	g3 := ts.sceneGlow3.Alpha(0.28)
+	p.FillGradient(r, ui.LinearGradient{From: g1, To: g1.Alpha(0), Angle: 135, End: 0.65}, 0)
+	p.FillGradient(r, ui.LinearGradient{From: g2.Alpha(0), To: g2, Angle: 135, Start: 0.35, End: 1}, 0)
+	p.FillGradient(r, ui.LinearGradient{From: g3.Alpha(0), To: g3, Angle: 45, Start: 0.22, End: 0.88}, 0)
 }
 
-// paintBackground paints the window's background.
-func paintBackground(p *ui.Painter, r ui.Rect, k *colors) {
-	h1, h2 := r.H*0.38, r.H*0.32
-	p.FillGradient(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: h1 + 1}, ui.LinearGradient{From: k.bgTop, To: k.bgMid, Angle: 180}, 0)
-	p.FillGradient(ui.Rect{X: r.X, Y: r.Y + h1, W: r.W, H: h2 + 1}, ui.LinearGradient{From: k.bgMid, To: k.bgLow, Angle: 180}, 0)
-	p.FillGradient(ui.Rect{X: r.X, Y: r.Y + h1 + h2, W: r.W, H: r.H - h1 - h2}, ui.LinearGradient{From: k.bgLow, To: k.bgBottom, Angle: 180}, 0)
-	clear := k.bgTint
-	clear.A = 0
-	p.FillGradient(r, ui.LinearGradient{From: clear, To: k.bgTint, Angle: 90, Start: 0.35, End: 1}, 0)
+// styleGlassPane applies TCDesign's GlassPane material & edge treatment
+// (Surfaces.swift + GlassBackdrop.swift):
+//   - Live macOS: AppKit NSGlassEffectView (.regular) sits directly behind the pane's
+//     20pt rounded rect; MyGo layers glassVeil + 160° paneFill gradient + specular rim.
+//   - Non-macOS / offscreen capture: MyGo's macOS 27 Liquid Glass shader (glass.Regular)
+//     refracts the scene backdrop under glassVeil + paneFill + shadow-float.
+//   - Reduce Transparency: solid paneOpaque + paneFill gradient.
+func styleGlassPane(e ui.Element, ts *themeState, focused bool) ui.Element {
+	rad := ts.paneRadius()
+	e.Radius(rad).Clip()
+	if !ts.ReduceTransparency && !ts.NativeGlass {
+		sh := ts.shadowFloat
+		e.Shadow(0, sh.y, sh.blur, 0, sh.color)
+		e.Material(glass.Glass{Style: glass.Regular, Tint: ts.glassTint})
+	}
+	e.Draw(func(p *ui.Painter, r ui.Rect) {
+		if ts.ReduceTransparency {
+			p.Fill(r, ts.paneOpaque, rad)
+		} else {
+			p.Fill(r, ts.glassVeil, rad)
+			if ts.HC && !ts.Classic {
+				p.Fill(r, ts.glassVeil.Alpha(0.34), rad)
+			}
+		}
+		p.FillGradient(r, ui.LinearGradient{From: ts.paneFill, To: ts.paneFillEnd, Angle: 160}, rad)
+		if !focused && ts.inactiveDim.A > 0 {
+			p.Fill(r, ts.inactiveDim, rad)
+		}
+		if ts.Classic {
+			// Classic paneEdge: 1pt top & left specular highlight + bottom shade.
+			topA, sideA, botA := float32(0.30), float32(0.12), float32(0.20)
+			if !ts.Dark {
+				topA, sideA, botA = 0.60, 0.24, 0.09
+			}
+			p.Stroke(r, ui.RGBA(255, 255, 255, sideA), rad, 1)
+			p.Fill(ui.Rect{X: r.X + rad*0.6, Y: r.Y, W: max(r.W-rad*1.2, 0), H: 1}, ui.RGBA(255, 255, 255, topA), 0)
+			p.Fill(ui.Rect{X: r.X + rad*0.6, Y: r.Y + r.H - 1, W: max(r.W-rad*1.2, 0), H: 1}, ui.RGBA(0, 0, 0, botA), 0)
+		} else if !ts.HC && !ts.ReduceTransparency {
+			// Subtle Liquid Glass 1px rim gleam matching macOS 26/27 NSGlassEffectView bezel.
+			rimA := float32(0.11)
+			if !ts.Dark {
+				rimA = 0.42
+			}
+			p.Stroke(r, ui.RGBA(255, 255, 255, rimA), rad, 1)
+		}
+	})
+	return ts.hcEdge(e)
+}
+
+// styleGlassCard applies TCDesign's GlassCard / GlassQuietCard painted surface
+// (Surfaces.swift: never glass-on-glass; 35%/28% translucent fill over glass,
+// or solid cardOnOpaque inside opaque Settings/ReduceTransparency surfaces).
+func styleGlassCard(e ui.Element, ts *themeState, quiet bool) ui.Element {
+	rad := ts.cardRadius()
+	if quiet {
+		rad = ts.cardQuietRadius()
+	}
+	e.Radius(rad)
+	if ts.Opaque {
+		if quiet {
+			e.Background(ts.cardQuietOnOpaque)
+		} else {
+			e.Background(ts.cardOnOpaque)
+		}
+		return ts.hcEdge(e)
+	}
+	if ts.Classic {
+		from, to := ts.card, ts.cardEnd
+		topA, botA := float32(0.20), float32(0.12)
+		if quiet {
+			from, to = ts.cardQuiet, ts.cardQuietEnd
+			topA, botA = 0.18, 0.10
+		}
+		if !ts.Dark {
+			topA *= 2
+			botA *= 0.45
+		}
+		e.Draw(func(p *ui.Painter, r ui.Rect) {
+			p.FillGradient(r, ui.LinearGradient{From: from, To: to, Angle: 180}, rad)
+			p.Stroke(r, ui.RGBA(255, 255, 255, topA*0.5), rad, 1)
+			p.Fill(ui.Rect{X: r.X + rad*0.5, Y: r.Y, W: max(r.W-rad, 0), H: 1}, ui.RGBA(255, 255, 255, topA), 0)
+			p.Fill(ui.Rect{X: r.X + rad*0.5, Y: r.Y + r.H - 1, W: max(r.W-rad, 0), H: 1}, ui.RGBA(0, 0, 0, botA), 0)
+		})
+		return ts.hcEdge(e)
+	}
+	if quiet {
+		e.Background(ts.cardQuiet)
+	} else {
+		e.Background(ts.card)
+	}
+	return ts.hcEdge(e)
 }
 
 //go:embed assets/fonts/JetBrainsMono-Regular.ttf
@@ -131,37 +133,81 @@ var fontItalic []byte
 //go:embed assets/fonts/JetBrainsMono-BoldItalic.ttf
 var fontBoldItalic []byte
 
+// registerFonts registers embedded JetBrains Mono as the cross-platform fallback;
+// SF Pro and SF Mono are resolved directly from macOS Core Text and never bundled.
 func registerFonts() {
 	for _, f := range [][]byte{fontRegular, fontBold, fontItalic, fontBoldItalic} {
 		ui.RegisterFont(f, "JetBrains Mono")
 	}
 }
 
-var termFont = terminal.Font{Family: "JetBrains Mono, SF Mono, Menlo, monospace", Size: 11.6, LineHeight: 1.0}
+var termFont = terminal.Font{
+	Family:     "SF Mono, JetBrains Mono, Menlo, Consolas, monospace",
+	Size:       12.0,
+	LineHeight: 1.15,
+}
 
-// The terminals' colors: soft ink on the panes' paper, and the dark kind.
+// Terminal palettes harmonized with Near AI OS / TCDesign tokens:
+// crisp text-primary ink, accent cursor/selection, and balanced semantic ANSI hues.
 var lightTerm = &terminal.Theme{
-	Foreground: ui.Hex("#2a2d31"),
-	Background: ui.Hex("#fbfbfb"),
-	Cursor:     ui.Hex("#3a3d42"),
-	Selection:  ui.RGBA(46, 111, 208, 0.2),
+	Foreground: ui.Hex("#1d1d1f"),
+	Background: ui.Hex("#ffffff"),
+	Cursor:     ui.Hex("#035ca3"),
+	CursorText: ui.Hex("#ffffff"),
+	Selection:  ui.RGBA(3, 92, 163, 0.20),
 	Palette: [16]ui.Color{
-		ui.Hex("#2a2d31"), ui.Hex("#c2465a"), ui.Hex("#4e8e5f"), ui.Hex("#b07a1e"),
-		ui.Hex("#2e6fd0"), ui.Hex("#9050c8"), ui.Hex("#1e8c9c"), ui.Hex("#8a8d93"),
-		ui.Hex("#6e7178"), ui.Hex("#d9566b"), ui.Hex("#5ba671"), ui.Hex("#c89026"),
-		ui.Hex("#4a8fe0"), ui.Hex("#a56bd8"), ui.Hex("#2ba2b3"), ui.Hex("#b5b8be"),
+		ui.Hex("#1d1d1f"), ui.Hex("#d0342c"), ui.Hex("#1a8f4c"), ui.Hex("#a8690f"),
+		ui.Hex("#035ca3"), ui.Hex("#5a48b8"), ui.Hex("#14906a"), ui.Hex("#75757b"),
+		ui.Hex("#5c5c63"), ui.Hex("#e04a42"), ui.Hex("#2f8a1f"), ui.Hex("#cf5320"),
+		ui.Hex("#2a78d6"), ui.Hex("#c94a7c"), ui.Hex("#199e70"), ui.Hex("#3c3c43"),
 	},
 }
 
 var darkTerm = &terminal.Theme{
-	Foreground: ui.Hex("#e6e6ea"),
-	Background: ui.Hex("#1e1e22"),
-	Cursor:     ui.Hex("#e6e6ea"),
-	Selection:  ui.RGBA(108, 178, 255, 0.28),
+	Foreground: ui.Hex("#f2f3f8"),
+	Background: ui.Hex("#0d1124"),
+	Cursor:     ui.Hex("#7ebcff"),
+	CursorText: ui.Hex("#071a2e"),
+	Selection:  ui.RGBA(126, 188, 255, 0.26),
 	Palette: [16]ui.Color{
-		ui.Hex("#3a3a40"), ui.Hex("#ff6b7f"), ui.Hex("#7bd88f"), ui.Hex("#e5c07b"),
-		ui.Hex("#6cb2ff"), ui.Hex("#c792ea"), ui.Hex("#56d4dd"), ui.Hex("#d0d0d6"),
-		ui.Hex("#6e6e78"), ui.Hex("#ff8c9c"), ui.Hex("#9be8a8"), ui.Hex("#f2d28a"),
-		ui.Hex("#8ec5ff"), ui.Hex("#d7a8f2"), ui.Hex("#7fe3ea"), ui.Hex("#ffffff"),
+		ui.Hex("#232946"), ui.Hex("#ff6b6b"), ui.Hex("#30d158"), ui.Hex("#ffc75c"),
+		ui.Hex("#7ebcff"), ui.Hex("#9085e9"), ui.Hex("#199e70"), ui.Hex("#d6d6dc"),
+		ui.Hex("#8d8d97"), ui.Hex("#ff8787"), ui.Hex("#63e685"), ui.Hex("#ffd585"),
+		ui.Hex("#9ecaff"), ui.Hex("#d55181"), ui.Hex("#38d9a9"), ui.Hex("#ffffff"),
 	},
+}
+
+var lightHCTerm = &terminal.Theme{
+	Foreground: ui.Hex("#1d1d1f"),
+	Background: ui.Hex("#ffffff"),
+	Cursor:     ui.Hex("#01599f"),
+	CursorText: ui.Hex("#ffffff"),
+	Selection:  ui.RGBA(1, 89, 159, 0.28),
+	Palette: [16]ui.Color{
+		ui.Hex("#1d1d1f"), ui.Hex("#b01218"), ui.Hex("#0b4628"), ui.Hex("#573403"),
+		ui.Hex("#013e71"), ui.Hex("#43329e"), ui.Hex("#0b5c43"), ui.Hex("#2a2a2e"),
+		ui.Hex("#3c3c43"), ui.Hex("#d0342c"), ui.Hex("#1a8f4c"), ui.Hex("#a8690f"),
+		ui.Hex("#01599f"), ui.Hex("#a32e5f"), ui.Hex("#14906a"), ui.Hex("#1d1d1f"),
+	},
+}
+
+var darkHCTerm = &terminal.Theme{
+	Foreground: ui.Hex("#ffffff"),
+	Background: ui.Hex("#0d1124"),
+	Cursor:     ui.Hex("#7ebcff"),
+	CursorText: ui.Hex("#071a2e"),
+	Selection:  ui.RGBA(126, 188, 255, 0.34),
+	Palette: [16]ui.Color{
+		ui.Hex("#2a3154"), ui.Hex("#ff8080"), ui.Hex("#acedbc"), ui.Hex("#ffd585"),
+		ui.Hex("#c6e1ff"), ui.Hex("#b8b0f5"), ui.Hex("#5ce6b8"), ui.Hex("#e6e6ec"),
+		ui.Hex("#d6d6dc"), ui.Hex("#ffd3d3"), ui.Hex("#c2f5cf"), ui.Hex("#ffe4ad"),
+		ui.Hex("#d9ecff"), ui.Hex("#f58cb2"), ui.Hex("#8cf0ce"), ui.Hex("#ffffff"),
+	},
+}
+
+func activeTerminalThemes() (light, dark *terminal.Theme) {
+	if prefs.HighContrast {
+		return lightHCTerm, darkHCTerm
+	}
+	return lightTerm, darkTerm
 }

@@ -10,14 +10,14 @@ import (
 	"github.com/egoist/mygo"
 )
 
-// debugHook lets a script drive the app in development mode while GOREX_DEBUG
+// debugHook lets a script drive the app in development mode while MULTIPLEXER_DEBUG
 // names a directory: each line of its file "do" is run, and "shot" captures
 // the window into shot.png.
 func (a *App) debugHook() {
 	if !mygo.IsDev() {
 		return
 	}
-	dir := os.Getenv("GOREX_DEBUG")
+	dir := os.Getenv("MULTIPLEXER_DEBUG")
 	if dir == "" {
 		return
 	}
@@ -44,6 +44,31 @@ func (a *App) debugHook() {
 	}()
 }
 
+func captureWindow(win *mygo.Window, sceneBackdrop bool, dir, arg, fallback string) {
+	if win == nil {
+		return
+	}
+	if sceneBackdrop {
+		win.Update(func() { forceSceneBackdrop = true })
+		time.Sleep(120 * time.Millisecond)
+	} else {
+		time.Sleep(100 * time.Millisecond)
+	}
+	png, err := win.CapturePage()
+	if sceneBackdrop {
+		win.Update(func() { forceSceneBackdrop = false })
+	}
+	if err == nil {
+		name := fallback
+		if arg != "" {
+			if base := filepath.Base(arg); base != "." && base != ".." && base != string(filepath.Separator) {
+				name = base
+			}
+		}
+		os.WriteFile(filepath.Join(dir, name), png, 0o600)
+	}
+}
+
 func (a *App) debug(dir, line string) {
 	verb, arg, _ := strings.Cut(line, " ")
 	win := a.win
@@ -52,16 +77,9 @@ func (a *App) debug(dir, line string) {
 	}
 	switch verb {
 	case "shot":
-		time.Sleep(100 * time.Millisecond)
-		if png, err := win.CapturePage(); err == nil {
-			name := "shot.png"
-			if arg != "" {
-				if base := filepath.Base(arg); base != "." && base != ".." && base != string(filepath.Separator) {
-					name = base
-				}
-			}
-			os.WriteFile(filepath.Join(dir, name), png, 0o600)
-		}
+		captureWindow(win, true, dir, arg, "shot.png")
+	case "shot-settings":
+		captureWindow(a.settingsWin, false, dir, arg, "settings.png")
 	case "sleep":
 		d, _ := time.ParseDuration(arg)
 		time.Sleep(d)
@@ -78,6 +96,58 @@ func (a *App) debug(dir, line string) {
 		if _, err := fmtSscan(arg, &w, &h); err == nil {
 			win.SetSize(w, h)
 		}
+	case "appearance":
+		mygo.RunOnMain(func() {
+			if arg == "system" {
+				arg = ""
+			}
+			a.setAppearance(arg)
+		})
+	case "theme":
+		mygo.RunOnMain(func() {
+			if arg == "near" {
+				arg = ""
+			}
+			a.setProductTheme(arg)
+		})
+	case "hc":
+		mygo.RunOnMain(func() { a.setHighContrast(arg == "on") })
+	case "density":
+		mygo.RunOnMain(func() {
+			if arg == "compact" {
+				arg = ""
+			}
+			a.setDensity(arg)
+		})
+	case "inspector":
+		win.Update(func() { a.inspectorOpen = arg != "close" && arg != "off" })
+	case "palette":
+		win.Update(func() {
+			if arg == "close" {
+				a.paletteOpen = false
+			} else {
+				a.openPalette()
+				if arg != "" && arg != "open" {
+					a.paletteQuery = arg
+				}
+			}
+		})
+	case "host":
+		win.Update(func() { a.hostOpen = arg != "close" })
+	case "settings":
+		mygo.RunOnMain(func() {
+			if arg == "close" {
+				if a.settingsWin != nil {
+					a.settingsWin.Close()
+				}
+				return
+			}
+			if arg != "" {
+				a.settingsSection = arg
+				a.settingsScrollReq = arg
+			}
+			a.openSettings()
+		})
 	default:
 		for _, cmd := range commands {
 			if strings.EqualFold(strings.ReplaceAll(cmd.Title, " ", "-"), verb) {
